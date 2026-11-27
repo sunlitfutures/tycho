@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scenario map</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #898781;
+  --line: #e1e0d9;
+  --node: #52514e;
+  /* outcome groups: one blue ramp, ordinal (step 250, 450, 650) */
+  --g0: #86b6ef;
+  --g1: #2a78d6;
+  --g2: #104281;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --surface: #1a1a19;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --ink-3: #898781;
+    --line: #2c2c2a;
+    --node: #c3c2b7;
+    --g0: #184f95;
+    --g1: #3987e5;
+    --g2: #9ec5f4;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--surface); }
+body {
+  font: 15px/1.45 var(--sans);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+main { max-width: 720px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 17px; line-height: 1.3; font-weight: 600; margin: 0 0 4px; text-wrap: balance; }
+.sub { font-size: 13px; color: var(--ink-2); margin: 0 0 16px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 12px; padding: 0; list-style: none; font-size: 13px; color: var(--ink-2); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.legend b { font-weight: 600; color: var(--ink); }
+figure { margin: 0; position: relative; }
+svg { display: block; width: 100%; overflow: visible; font-family: var(--sans); }
+svg text { font-size: 12px; fill: var(--ink-2); }
+svg .col { fill: var(--ink-3); }
+svg .lab text { fill: var(--ink); font-weight: 500; paint-order: stroke; stroke: var(--surface); stroke-opacity: .5; stroke-width: 3px; stroke-linejoin: round; }
+svg .lab .v, svg .out .v { fill: var(--ink-2); font-weight: 400; }
+.band { transition: fill-opacity .15s; fill-opacity: .55; cursor: pointer; }
+@media (prefers-color-scheme: dark) { .band { fill-opacity: .7; } }
+.dim .band { fill-opacity: .12; }
+.dim .band.on { fill-opacity: 1; }
+.dim .lab:not(.on) { opacity: .45; }
+.hit { fill: transparent; cursor: pointer; }
+#tip {
+  position: absolute; pointer-events: none; z-index: 2;
+  background: var(--ink); color: var(--surface);
+  font-size: 13px; line-height: 1.35; padding: 6px 8px; border-radius: 6px;
+  max-width: 240px; opacity: 0; transition: opacity .12s; white-space: pre-line;
+}
+#tip.show { opacity: 1; }
+.note { font-size: 12px; color: var(--ink-3); margin: 12px 0 0; }
+details { margin-top: 16px; font-size: 13px; color: var(--ink-2); }
+summary { cursor: pointer; color: var(--ink-2); }
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th, td { text-align: left; padding: 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 500; color: var(--ink-3); font-size: 12px; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; padding-left: 12px; white-space: nowrap; }
+td i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 1px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="q"></h1>
+  <p class="sub" id="sub"></p>
+  <ul class="legend" id="legend"></ul>
+  <figure>
+    <svg id="map" role="img"></svg>
+    <div id="tip"></div>
+  </figure>
+  <details>
+    <summary>Show as a table</summary>
+    <table id="table"></table>
+  </details>
+  <p class="note" id="note"></p>
+</main>
+<script id="data" type="application/json">/*DATA*/</script>
+<script>
+const D = JSON.parse(document.getElementById('data').textContent);
+const GROUP_BY = 'ca_status'; // a view choice, not data: which tag groups the outcomes
+const svg = document.getElementById('map');
+const tip = document.getElementById('tip');
+const fig = svg.parentNode;
+const NS = 'http://www.w3.org/2000/svg';
+const pct = s => Math.round(s * 100) + '%';
+const sans = getComputedStyle(document.documentElement).getPropertyValue('--sans');
+const ctx = document.createElement('canvas').getContext('2d');
+const measure = (t, px, w = 400) => { ctx.font = `${w} ${px}px ${sans}`; return ctx.measureText(t).width; };
+
+// ---- model: nodes, groups, paths (independent of size) ----
+const cols = D.columns.map(c => c.id);
+const last = cols.length - 1;
+const N = new Map(D.nodes.map(n => [n.id, { ...n, ci: cols.indexOf(n.column), v: 0, paths: [] }]));
+const P = D.paths.map((p, i) => ({ ...p, i, real: p.through.map(id => N.get(id)) }));
+// A path that skips a column passes through a hidden waypoint there, so the
+// layout keeps room for it and it never runs behind another column's bars.
+P.forEach(p => {
+  p.nodes = [];
+  p.real.forEach((n, j) => {
+    const prev = p.real[j - 1];
+    if (prev) for (let ci = prev.ci + 1; ci < n.ci; ci++) {
+      const id = `~${prev.id}@${cols[ci]}`;
+      if (!N.has(id)) N.set(id, { id, ci, v: 0, paths: [], waypoint: true });
+      p.nodes.push(N.get(id));
+    }
+    p.nodes.push(n);
+  });
+  p.nodes.forEach(n => { n.v += p.share; n.paths.push(p); });
+  p.end = p.nodes[p.nodes.length - 1];
+});
+const groups = [];
+for (const n of N.values()) {
+  if (n.ci !== last) continue;
+  const name = n.tags?.[GROUP_BY] ?? 'Other';
+  let g = groups.find(x => x.name === name);
+  if (!g) groups.push(g = { name, nodes: [], v: 0 });
+  g.nodes.push(n); g.v += n.v; n.g = groups.indexOf(g);
+}
+P.forEach(p => { p.g = p.end.g; });
+const total = P.reduce((s, p) => s + p.share, 0);
+// The start is the premise. When it is a single node it carries no split, so
+// it is said in words, not drawn as a bar.
+const startNodes = [...N.values()].filter(n => n.ci === 0);
+const first = startNodes.length === 1 ? 1 : 0;
+
+document.getElementById('q').textContent = D.question;
+document.getElementById('sub').textContent = (first ? `Every run starts with: ${startNodes[0].label}. ` : '') +
+  'Band width is the share of runs. Sample numbers to test the format, not a forecast.';
+svg.setAttribute('aria-label', `${D.question} Outcomes: ` + groups.map(g => `${g.name} ${pct(g.v)}`).join(', ') + '.');
+document.getElementById('legend').innerHTML = groups.map((g, gi) =>
+  `<li><i style="background:var(--g${gi})"></i>${g.name} <b>${pct(g.v)}</b></li>`).join('');
+const pathText = p => p.real.slice(first).map(n => n.label).join(' → ');
+document.getElementById('table').innerHTML =
+  '<tr><th>Path</th><th class="n">Runs</th></tr>' +
+  [...P].sort((a, b) => b.share - a.share).map(p =>
+    `<tr><td><i style="background:var(--g${p.g})"></i>${pathText(p)}</td><td class="n">${pct(p.share)}</td></tr>`).join('');
+document.getElementById('note').textContent =
+  `Drawn from the file alone: ${D.columns.length} columns, ${D.nodes.length} nodes, ${D.paths.length} paths` +
+  (Math.abs(total - 1) > 0.001 ? `. Warning: shares add up to ${pct(total)}, not 100%.` : '. Shares add up to 100%.');
+
+const wrap = (text, px, maxW) => {
+  const lines = []; let cur = '';
+  for (const w of text.split(' ')) {
+    const t = cur ? cur + ' ' + w : w;
+    if (measure(t, px) > maxW && cur) { lines.push(cur); cur = w; } else cur = t;
+  }
+  lines.push(cur); return lines;
+};
+
+// ---- layout (depends on width) ----
+function draw() {
+  const W = Math.round(fig.clientWidth);
+  const BW = 6;                     // node bar width
+  const H = W >= 560 ? 420 : 470;   // height of the flow area; taller on a phone so hinge labels fit their nodes
+  const GAP = 8, GROUP_GAP = 22, MID_GAP = 14, LH = 14;
+
+  // outcome labels sit right of the last column; measure them
+  const outs = [...N.values()].filter(n => n.ci === last);
+  const natural = Math.max(...outs.map(n => measure(`${n.label} ${pct(n.v)}`, 13)));
+  const outLab = W >= 560 ? natural : Math.min(natural, Math.round(W * 0.34));
+  const span = last - first;
+  const lastX = W - outLab - BW - 8;
+  const colGap = lastX / span;
+  const colX = ci => ((ci - first) / span) * lastX;
+
+  // column labels, wrapped to the room each column has
+  const heads = D.columns.map((c, ci) => ci < first ? [] : wrap(c.label, 12, ci === last ? W - lastX : colGap - 10));
+  const TOP = Math.max(...heads.map(h => h.length)) * LH + 8;
+
+  // scale: the outcome column is the tallest stack
+  const outGaps = (outs.length - groups.length) * GAP + (groups.length - 1) * GROUP_GAP;
+  const k = (H - outGaps) / total;
+
+  // outcomes: stacked in group order, top to bottom
+  let y = TOP;
+  groups.forEach((g, gi) => {
+    if (gi) y += GROUP_GAP - GAP;
+    g.nodes.forEach(n => { n.y = y; n.h = n.v * k; y += n.h + GAP; });
+  });
+  const bottom = y - GAP;
+
+  // start column: centered
+  for (const n of N.values()) if (n.ci === 0) {
+    n.h = n.v * k; n.y = TOP + (bottom - TOP - n.h) / 2;
+  }
+
+  // hinge columns: each node sits near the middle of where its runs come from and end up
+  for (let ci = 1; ci < last; ci++) {
+    const col = [...N.values()].filter(n => n.ci === ci);
+    col.forEach(n => {
+      n.h = n.v * k;
+      let s = 0, w = 0;
+      n.paths.forEach(p => {
+        const prev = p.nodes[p.nodes.indexOf(n) - 1];
+        const c = ((prev.y + prev.h / 2) + (p.end.y + p.end.h / 2)) / 2;
+        s += c * p.share; w += p.share;
+      });
+      n.want = s / w - n.h / 2;
+    });
+    col.sort((a, b) => a.want - b.want);
+    col.forEach((n, i) => { n.y = i ? Math.max(n.want, col[i - 1].y + col[i - 1].h + MID_GAP) : Math.max(TOP, n.want); });
+    for (let i = col.length - 1; i >= 0; i--) {
+      const lim = i === col.length - 1 ? bottom : col[i + 1].y - MID_GAP;
+      if (col[i].y + col[i].h > lim) col[i].y = lim - col[i].h;
+    }
+  }
+  for (const n of N.values()) { n.x = colX(n.ci); n.cy = n.y + n.h / 2; }
+
+  // stack paths inside each node: out-side by where they go next, in-side by where they came from
+  const slot = new Map();
+  const at = (p, n) => p.nodes.indexOf(n);
+  for (const n of N.values()) {
+    const outs = n.paths.filter(p => at(p, n) < p.nodes.length - 1);
+    outs.sort((a, b) => a.nodes[at(a, n) + 1].cy - b.nodes[at(b, n) + 1].cy || a.end.cy - b.end.cy || a.i - b.i);
+    let o = n.y; outs.forEach(p => { slot.set(p.i + ':' + n.id + ':out', o); o += p.share * k; });
+  }
+  for (const n of N.values()) {
+    const ins = n.paths.filter(p => at(p, n) > 0);
+    if (n.waypoint) { ins.forEach(p => slot.set(p.i + ':' + n.id + ':in', slot.get(p.i + ':' + n.id + ':out'))); continue; }
+    ins.sort((a, b) => {
+      const pa = a.nodes[at(a, n) - 1], pb = b.nodes[at(b, n) - 1];
+      return pa.cy - pb.cy || slot.get(a.i + ':' + pa.id + ':out') - slot.get(b.i + ':' + pb.id + ':out');
+    });
+    let o = n.y; ins.forEach(p => { slot.set(p.i + ':' + n.id + ':in', o); o += p.share * k; });
+  }
+
+  // ---- draw ----
+  svg.setAttribute('viewBox', `0 0 ${W} ${bottom + 4}`);
+  svg.setAttribute('height', bottom + 4);
+  svg.innerHTML = '';
+  const el = (tag, attrs, parent = svg) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+
+  heads.forEach((lines, ci) => {
+    if (!lines.length) return;
+    const t = el('text', { x: colX(ci), y: 0, class: 'col' });
+    lines.forEach((line, i) => { const s = el('tspan', { x: colX(ci), dy: i ? LH : 11 }, t); s.textContent = line; });
+  });
+
+  const bands = el('g', {});
+  P.forEach(p => {
+    const g = el('g', { class: 'path', 'data-i': p.i }, bands);
+    for (let j = 0; j < p.nodes.length - 1; j++) {
+      const a = p.nodes[j], b = p.nodes[j + 1];
+      if (a.ci < first) continue;
+      const th = p.share * k, pad = th > 4 ? 1 : th / 4; // a 2px surface gap between neighboring flows
+      const x0 = a.waypoint ? a.x : a.x + BW, x1 = b.waypoint ? b.x : b.x;
+      const a0 = slot.get(p.i + ':' + a.id + ':out') + pad, a1 = a0 + th - 2 * pad;
+      const b0 = slot.get(p.i + ':' + b.id + ':in') + pad, b1 = b0 + th - 2 * pad;
+      const xm = (x0 + x1) / 2;
+      el('path', {
+        class: 'band', fill: `var(--g${p.g})`,
+        d: `M${x0},${a0}C${xm},${a0} ${xm},${b0} ${x1},${b0}L${x1},${b1}C${xm},${b1} ${xm},${a1} ${x0},${a1}Z`,
+      }, g);
+    }
+  });
+
+  const real = [...N.values()].filter(n => !n.waypoint && n.ci >= first);
+  const nodes = el('g', {});
+  for (const n of real) {
+    el('rect', { x: n.x, y: n.y, width: BW, height: Math.max(n.h, 1), rx: 1.5,
+      fill: n.ci === last ? `var(--g${n.g})` : 'var(--node)' }, nodes);
+  }
+
+  // labels: every node gets its name and share, wrapped to the room it has, sitting on its own flows
+  const labels = el('g', {});
+  for (const n of real) {
+    const out = n.ci === last;
+    const px = out ? 13 : 12, lh = out ? 16 : LH;
+    const room = out ? outLab : colGap - BW - 14;
+    // the share rides on the last line of the name; it never sits alone unless it must
+    const lines = wrap(n.label, px, room).map(text => ({ text }));
+    const tail = lines[lines.length - 1];
+    if (measure(`${tail.text} ${pct(n.v)}`, px) <= room) tail.share = pct(n.v);
+    else lines.push({ text: '', share: pct(n.v) });
+    const h = lines.length * lh;
+    n.lab = { x: n.x + BW + (out ? 8 : 6), lines, h, lh, px, y: n.cy - h / 2 };
+  }
+  // keep labels in one column from overlapping
+  for (let ci = first; ci <= last; ci++) {
+    const col = real.filter(n => n.ci === ci).sort((a, b) => a.lab.y - b.lab.y);
+    for (let i = 1; i < col.length; i++) {
+      const prev = col[i - 1].lab, cur = col[i].lab;
+      if (cur.y < prev.y + prev.h + 2) cur.y = prev.y + prev.h + 2;
+    }
+  }
+  for (const n of real) {
+    const { x, lines, lh, px, y } = n.lab;
+    const g = el('g', { class: 'lab' + (n.ci === last ? ' out' : ''), 'data-n': n.id }, labels);
+    const t = el('text', { x, y, 'font-size': px, style: 'white-space:pre' }, g);
+    lines.forEach((line, i) => {
+      const pos = { x, dy: i ? lh : px - 1 };
+      if (line.text) el('tspan', pos, t).textContent = line.text;
+      if (line.share) el('tspan', line.text ? { class: 'v' } : { ...pos, class: 'v' }, t).textContent = (line.text ? ' ' : '') + line.share;
+    });
+  }
+
+  const hang = Math.max(bottom + 4, ...[...labels.querySelectorAll('text')].map(t => t.getBBox().y + t.getBBox().height + 2));
+  svg.setAttribute('viewBox', `0 0 ${W} ${hang}`);
+  svg.setAttribute('height', hang);
+
+  // hover and tap: a flow lights its whole path; a node lights every path through it
+  const hits = el('g', {});
+  bands.querySelectorAll('.band').forEach(b => {
+    const h = el('path', { d: b.getAttribute('d'), class: 'hit', stroke: 'transparent', 'stroke-width': 8 }, hits);
+    h.dataset.i = b.parentNode.dataset.i;
+  });
+  for (const n of real) {
+    const r = el('rect', { x: n.x - 8, y: n.y - 2, width: BW + 16, height: n.h + 4, class: 'hit' }, hits);
+    r.dataset.n = n.id;
+  }
+  const light = (ids, nodeIds, text, ev) => {
+    svg.classList.add('dim');
+    svg.querySelectorAll('.band').forEach(b => b.classList.toggle('on', ids.has(+b.parentNode.dataset.i)));
+    svg.querySelectorAll('.lab').forEach(l => l.classList.toggle('on', nodeIds.has(l.dataset.n)));
+    tip.textContent = text; tip.classList.add('show');
+    const r = fig.getBoundingClientRect();
+    let x = ev.clientX - r.left - tip.offsetWidth / 2, y = ev.clientY - r.top - tip.offsetHeight - 14;
+    x = Math.max(0, Math.min(x, r.width - tip.offsetWidth));
+    if (y < 0) y = ev.clientY - r.top + 20;
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  };
+  const clear = () => { svg.classList.remove('dim'); tip.classList.remove('show'); };
+  hits.addEventListener('pointermove', ev => {
+    const t = ev.target;
+    if (t.dataset.i !== undefined) {
+      const p = P[+t.dataset.i];
+      light(new Set([p.i]), new Set(p.through), `${pathText(p)}\n${pct(p.share)} of runs`, ev);
+    } else if (t.dataset.n) {
+      const n = N.get(t.dataset.n);
+      light(new Set(n.paths.map(p => p.i)), new Set(n.paths.flatMap(p => p.through)), `${n.label}\n${pct(n.v)} of runs`, ev);
+    }
+  });
+  hits.addEventListener('pointerleave', clear);
+  document.addEventListener('pointerdown', ev => { if (!svg.contains(ev.target)) clear(); });
+}
+draw();
+let lastW = fig.clientWidth;
+new ResizeObserver(() => { if (fig.clientWidth !== lastW) { lastW = fig.clientWidth; draw(); } }).observe(fig);
+</script>
+</body>
+</html>

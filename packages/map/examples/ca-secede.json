@@ -1,0 +1,36 @@
+{
+  "format": "tycho.map/0",
+  "question": "What happens if California tries to secede in 2026?",
+  "columns": [
+    { "id": "start", "label": "Start" },
+    { "id": "leverage", "label": "Leverage" },
+    { "id": "response", "label": "What follows" },
+    { "id": "outcome", "label": "Outcome" }
+  ],
+  "nodes": [
+    { "id": "tries", "column": "start", "label": "California tries to secede" },
+    { "id": "weak", "column": "leverage", "label": "No unusual leverage" },
+    { "id": "strong", "column": "leverage", "label": "Serious leverage" },
+    { "id": "bargain", "column": "response", "label": "Washington bargains" },
+    { "id": "standoff", "column": "response", "label": "Standoff" },
+    { "id": "cascade", "column": "response", "label": "Cascading crises" },
+    { "id": "no-change", "column": "outcome", "label": "No real change", "tags": { "ca_status": "Still in the US" } },
+    { "id": "concessions", "column": "outcome", "label": "Federal concessions", "tags": { "ca_status": "Still in the US" } },
+    { "id": "autonomy", "column": "outcome", "label": "De facto autonomy", "tags": { "ca_status": "Quasi-independent" } },
+    { "id": "struggle", "column": "outcome", "label": "Ongoing struggle", "tags": { "ca_status": "Quasi-independent" } },
+    { "id": "breakdown", "column": "outcome", "label": "The US breaks apart", "tags": { "ca_status": "US breaks apart" } }
+  ],
+  "paths": [
+    { "through": ["tries", "weak", "no-change"], "share": 0.45 },
+    { "through": ["tries", "weak", "concessions"], "share": 0.20 },
+    { "through": ["tries", "weak", "struggle"], "share": 0.03 },
+    { "through": ["tries", "strong", "bargain", "concessions"], "share": 0.11 },
+    { "through": ["tries", "strong", "bargain", "autonomy"], "share": 0.05 },
+    { "through": ["tries", "strong", "bargain", "no-change"], "share": 0.02 },
+    { "through": ["tries", "strong", "standoff", "struggle"], "share": 0.05 },
+    { "through": ["tries", "strong", "standoff", "autonomy"], "share": 0.02 },
+    { "through": ["tries", "strong", "standoff", "no-change"], "share": 0.02 },
+    { "through": ["tries", "strong", "cascade", "breakdown"], "share": 0.03 },
+    { "through": ["tries", "strong", "cascade", "autonomy"], "share": 0.02 }
+  ]
+}
