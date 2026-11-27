@@ -33,8 +33,10 @@ describe("cookies", () => {
 });
 
 describe("client IP", () => {
-  it("takes the first X-Forwarded-For entry", () => {
-    expect(clientIp(h({ "x-forwarded-for": "203.0.113.7, 10.0.0.1" }))).toBe("203.0.113.7");
+  it("takes the last X-Forwarded-For entry, the one our proxy added", () => {
+    expect(clientIp(h({ "x-forwarded-for": "203.0.113.7" }))).toBe("203.0.113.7");
+    // A visitor's fake entry comes first; the proxy appends the real address.
+    expect(clientIp(h({ "x-forwarded-for": "6.6.6.6, 203.0.113.7" }))).toBe("203.0.113.7");
     expect(clientIp(h({}))).toBe("unknown");
   });
 });

@@ -61,7 +61,7 @@ pnpm typecheck   # TypeScript checks
 - **Limits.** One address can get 1 code a minute, 5 in 15 minutes, and 10 a day. One network (IP address) can request 20 codes in 15 minutes and 100 a day, and can enter 30 wrong codes in 15 minutes.
 - **Sessions.** Signing in puts a random token in a cookie that scripts on the page cannot read. Tycho stores only a hash of the token. A session lasts 30 days from your last visit. Signing out deletes it.
 - **Forms from other sites.** Every change is a POST request, and Tycho checks that it came from its own pages.
-- **Behind a proxy.** Tycho reads the visitor's IP address from the `X-Forwarded-For` header. Put the app behind a proxy that sets that header itself, such as Caddy or nginx, so visitors cannot fake it.
+- **Behind a proxy.** Tycho reads the visitor's IP address from the `X-Forwarded-For` header. It uses the last entry, the one your proxy adds, so put exactly one proxy in front of the app (Caddy, nginx, or your host's). Without a proxy, visitors can fake the header and dodge the per-IP limits. With a second layer like a CDN in front, the last entry is the CDN, so `clientIp` in `apps/web/src/lib/auth/http.ts` needs to look one entry further back.
 
 ## Sending email another way
 

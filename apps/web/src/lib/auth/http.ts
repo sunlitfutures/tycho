@@ -91,11 +91,13 @@ export function sameOrigin(headers: HeaderBag): boolean {
 }
 
 /**
- * The client's IP, from the first X-Forwarded-For entry. The proxy in front
- * (Caddy, nginx) must overwrite that header with the real address.
+ * The client's IP, from the last X-Forwarded-For entry: the one our own proxy
+ * added. Earlier entries come from the visitor and can be faked. This holds
+ * whether the proxy replaces the header (Caddy) or appends to it (nginx).
+ * ponytail: assumes exactly one proxy in front; add a hop count if we put a CDN ahead of it.
  */
 export function clientIp(headers: HeaderBag): string {
-  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const forwarded = headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
   const ip = forwarded || headers.get("x-real-ip")?.trim() || "unknown";
   return ip.slice(0, 64);
 }
