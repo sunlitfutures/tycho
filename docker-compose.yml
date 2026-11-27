@@ -1,0 +1,39 @@
+name: tycho
+
+# Tycho on any machine: `docker compose up` runs Postgres and the app at
+# http://localhost:4310. For development, run only the database
+# (`docker compose up -d db`) and the app with `pnpm dev`.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: tycho
+      POSTGRES_PASSWORD: tycho
+      POSTGRES_DB: tycho
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - tycho-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tycho -d tycho"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://tycho:tycho@db:5432/tycho
+      APP_URL: ${APP_URL:-http://localhost:4310}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-Tycho <noreply@example.com>}
+    ports:
+      - "127.0.0.1:4310:4310"
+
+volumes:
+  tycho-db:
